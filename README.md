@@ -42,7 +42,7 @@ sudo apt install -y build-essential cmake \
 sudo dnf install -y gcc-c++ cmake mysql-devel hiredis-devel
 ```
 
-> 已不再依赖 muduo；网络栈在 `thirdparty/reactor/`。
+> 网络栈在 `thirdparty/reactor/`。
 
 ---
 
