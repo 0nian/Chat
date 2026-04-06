@@ -5,6 +5,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <unistd.h>
 #include "tcp.hpp"
 #include "event_loop.hpp"  // 事件循环
 #include "log.hpp"         // 日志系统
@@ -80,7 +81,12 @@ public:
             // 通过EventLoop的环形队列传递连接信息
             auto event_loop = connection->el.lock();
             ClientInf ci{client_sockfd, client_ip, client_port};
-            event_loop->rq_->Push(ci); // 入队操作
+            if (!event_loop->rq_->Push(ci)) {
+                lg(Error,
+                    "ring queue full, close accepted fd=%d client [%s:%d]",
+                    client_sockfd, client_ip.c_str(), client_port);
+                close(client_sockfd);
+            }
         }
     }
 

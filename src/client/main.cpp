@@ -20,6 +20,8 @@ using json = nlohmann::json;
 #include <unistd.h>
 
 static string g_recv_accum;
+static std::thread g_readThread;
+static bool g_need_reconnect = false;
 
 static bool sendFramed(int fd, const string &json_text) {
   string wire = chat_net::Encode(json_text);
@@ -36,9 +38,14 @@ static bool sendFramed(int fd, const string &json_text) {
 static bool recvOneJson(int fd, json &out) {
   while (true) {
     string one;
-    if (chat_net::Decode(g_recv_accum, one)) {
+    auto st = chat_net::DecodeOne(g_recv_accum, one);
+    if (st == chat_net::DecodeStatus::Ok) {
       out = json::parse(one);
       return true;
+    }
+    if (st == chat_net::DecodeStatus::ProtocolError ||
+        st == chat_net::DecodeStatus::TooLarge) {
+      return false;
     }
     char buf[8192];
     ssize_t len = recv(fd, buf, sizeof(buf), 0);
@@ -51,6 +58,32 @@ static bool recvOneJson(int fd, json &out) {
     }
     g_recv_accum.append(buf, static_cast<size_t>(len));
   }
+}
+
+static int connectToServer(const char *ip, uint16_t port) {
+  int clientfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (clientfd == -1) {
+    cerr << "socket create error" << endl;
+    return -1;
+  }
+
+  sockaddr_in server;
+  memset(&server, 0, sizeof(sockaddr_in));
+  server.sin_family = AF_INET;
+  server.sin_port = htons(port);
+  server.sin_addr.s_addr = inet_addr(ip);
+  if (connect(clientfd, (sockaddr *)&server, sizeof(sockaddr_in)) == -1) {
+    cerr << "connect server error" << endl;
+    close(clientfd);
+    return -1;
+  }
+
+  g_recv_accum.clear();
+  timeval tv;
+  tv.tv_sec = 0;
+  tv.tv_usec = 200000;
+  setsockopt(clientfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  return clientfd;
 }
 
 #include "group.hpp"
@@ -89,33 +122,28 @@ int main(int argc, char *argv[])
     char *ip = argv[1];
     uint16_t port = atoi(argv[2]);
 
-    int clientfd = socket(AF_INET, SOCK_STREAM, 0);
+    int clientfd = connectToServer(ip, port);
     if (clientfd == -1)
     {
-        cerr << "socket create error" << endl;
         exit(-1);
     }
-
-    sockaddr_in server;
-    memset(&server, 0, sizeof(sockaddr_in));
-
-    server.sin_family = AF_INET;
-    server.sin_port = htons(port);
-    server.sin_addr.s_addr = inet_addr(ip);
-    if (connect(clientfd, (sockaddr *)&server, sizeof(sockaddr_in)) == -1)
-    {
-        cerr << "connect server error" << endl;
-        close(clientfd);
-        exit(-1);
-    }
-    g_recv_accum.clear();
-    timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 200000;
-    setsockopt(clientfd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
 
     while (1)
     {
+        if (g_need_reconnect || clientfd == -1)
+        {
+            if (g_readThread.joinable())
+            {
+                g_readThread.join();
+            }
+            clientfd = connectToServer(ip, port);
+            g_need_reconnect = false;
+            if (clientfd == -1)
+            {
+                exit(-1);
+            }
+        }
+
         cout << "====================" << endl;
         cout << "1.login" << endl;
         cout << "2.register" << endl;
@@ -228,8 +256,11 @@ int main(int argc, char *argv[])
                         if (!isMain)
                         {
                             isMain = true;
-                            thread readTask(readTaskHandler, clientfd);
-                            readTask.detach();
+                            if (g_readThread.joinable())
+                            {
+                                g_readThread.join();
+                            }
+                            g_readThread = std::thread(readTaskHandler, clientfd);
                         }
                     
                         // ?????????????
@@ -280,7 +311,13 @@ int main(int argc, char *argv[])
         }
         break;
         case 3:
+            isMain = false;
+            shutdown(clientfd, SHUT_RDWR);
             close(clientfd);
+            if (g_readThread.joinable())
+            {
+                g_readThread.join();
+            }
             exit(0);
         default:
             cerr << "invalid input!" << endl;
@@ -325,8 +362,9 @@ void readTaskHandler(int clientfd)
         json js;
         if (!recvOneJson(clientfd, js))
         {
-            close(clientfd);
-            exit(-1);
+            // 连接关闭/出错时，协作式退出读线程；关闭 fd 由主线程统一处理
+            isMain = false;
+            return;
         }
         int msgtype = js["msgid"].get<int>();
         if (msgtype == MSG_ONE_CHAT)
@@ -534,6 +572,13 @@ void quit(int clientfd, string str)
     else
     {
         isMain = false;
+        shutdown(clientfd, SHUT_RDWR);
+        close(clientfd);
+        if (g_readThread.joinable())
+        {
+            g_readThread.join();
+        }
+        g_need_reconnect = true;
     }
 }
 

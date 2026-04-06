@@ -87,23 +87,20 @@ public:
     /**
      * 向队列推送元素(生产者调用)
      * @param task 要添加的元素
+     * @return 成功 true；队列满（非阻塞拿不到空位）返回 false
      */
-    void Push(const T & task)
-    {
-        // 尝试获取空间信号量(非阻塞)
-        if(P(space_sem_) == -1){
-            return;  // 获取失败直接返回
-        }
-        
+    bool Push(const T &task) {
+        if (P(space_sem_) == -1)
+            return false;
+
         {
-            // 加生产者锁保护
             LockGuard lg(p_mutex_);
-            queue[p_index_] = task;           // 放置元素
-            p_index_ = (p_index_ + 1) % cap_; // 更新生产者索引(环形)
+            queue[p_index_] = task;
+            p_index_ = (p_index_ + 1) % cap_;
         }
-        
-        // 释放数据信号量(通知消费者有新数据)
+
         V(data_sem_);
+        return true;
     }
     
     /**

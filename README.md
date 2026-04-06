@@ -117,6 +117,8 @@ mysql -u root -p < init_chat.sql
 
 连接成功后，服务端日志中会打印 MySQL 连接成功（使用 Reactor 自带 `log.hpp` 输出到终端）。
 
+业务访问数据库时，在 `MySQL` 封装中统一使用 **`mysql_stmt_*` 预处理语句**（`db.cpp`），避免字符串拼接导致 **SQL 注入** 与内容中的单引号等问题；连接建立后会执行 `set names utf8mb4`，与上面建表的 `utf8mb4` 一致。
+
 ---
 
 ## 依赖服务：Redis

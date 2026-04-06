@@ -1,36 +1,22 @@
-#include"offlinemsgmodel.hpp"
-#include"db.h"
+#include "db.h"
+#include "offlinemsgmodel.hpp"
 
-void OfflineMsgModel::insert(int id,string msg){
-    char sql[1024] = {0};
-    sprintf(sql, "insert into offlinemessage values('%d','%s')",id,msg.c_str());
-    MySQL mysql;
-    if(mysql.connect()){
-        mysql.update(sql);
-    }
+void OfflineMsgModel::insert(int id, string msg) {
+  MySQL mysql;
+  if (mysql.connect())
+    mysql.insertOfflineMessage(id, msg);
 }
-void OfflineMsgModel::remove(int id){
-    char sql[1024] = {0};
-    sprintf(sql, "delete from offlinemessage where userid=%d",id);
-    MySQL mysql;
-    if(mysql.connect()){
-        mysql.update(sql);
-    }
+
+void OfflineMsgModel::remove(int id) {
+  MySQL mysql;
+  if (mysql.connect())
+    mysql.deleteOfflineMessages(id);
 }
-vector<string> OfflineMsgModel::query(int id){
-    char sql[1024] = {0};
-    sprintf(sql, "select message from offlinemessage where userid = %d",id);
-    MySQL mysql;
-    vector<string> v;
-    if(mysql.connect()){
-        MYSQL_RES *res = mysql.query(sql);
-        if(res != nullptr){
-            MYSQL_ROW row;
-            while((row = mysql_fetch_row(res)) != nullptr){
-                v.push_back(row[0]);
-            }
-            mysql_free_result(res);
-        }  
-    }
-    return v;
+
+vector<string> OfflineMsgModel::query(int id) {
+  vector<string> v;
+  MySQL mysql;
+  if (mysql.connect())
+    mysql.selectOfflineMessages(id, v);
+  return v;
 }

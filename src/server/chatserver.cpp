@@ -110,7 +110,18 @@ void ChatServer::messageHandler(std::weak_ptr<Connection> wconn) {
   auto chatConn = getOrCreateChatConn(conn, el);
   std::string &buf = conn->Inbuffer();
   std::string one;
-  while (chat_net::Decode(buf, one)) {
+  while (true) {
+    auto st = chat_net::DecodeOne(buf, one);
+    if (st == chat_net::DecodeStatus::NeedMore)
+      return;
+    if (st == chat_net::DecodeStatus::ProtocolError ||
+        st == chat_net::DecodeStatus::TooLarge) {
+      lg(Error, "bad frame from client [%s:%d], status=%d, close",
+         conn->ip_.c_str(), conn->port_, static_cast<int>(st));
+      conn->except_cb(conn);
+      return;
+    }
+    // Ok
     try {
       json js = json::parse(one);
       int msgid = js.at("msgid").get<int>();
